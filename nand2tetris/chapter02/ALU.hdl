@@ -1,0 +1,64 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/2/ALU.hdl
+/**
+ * ALU (Arithmetic Logic Unit):
+ * Computes out = one of the following functions:
+ *                0, 1, -1,
+ *                x, y, !x, !y, -x, -y,
+ *                x + 1, y + 1, x - 1, y - 1,
+ *                x + y, x - y, y - x,
+ *                x & y, x | y
+ * on the 16-bit inputs x, y,
+ * according to the input bits zx, nx, zy, ny, f, no.
+ * In addition, computes the two output bits:
+ * if (out == 0) zr = 1, else zr = 0
+ * if (out < 0)  ng = 1, else ng = 0
+ */
+// Implementation: Manipulates the x and y inputs
+// and operates on the resulting values, as follows:
+// if (zx == 1) sets x = 0        // 16-bit constant
+// if (nx == 1) sets x = !x       // bitwise not
+// if (zy == 1) sets y = 0        // 16-bit constant
+// if (ny == 1) sets y = !y       // bitwise not
+// if (f == 1)  sets out = x + y  // integer 2's complement addition
+// if (f == 0)  sets out = x & y  // bitwise and
+// if (no == 1) sets out = !out   // bitwise not
+
+CHIP ALU {
+    IN  
+        x[16], y[16],  // 16-bit inputs        
+        zx, // zero the x input?
+        nx, // negate the x input?
+        zy, // zero the y input?
+        ny, // negate the y input?
+        f,  // compute (out = x + y) or (out = x & y)?
+        no; // negate the out output?
+    OUT 
+        out[16], // 16-bit output
+        zr,      // if (out == 0) equals 1, else 0
+        ng;      // if (out < 0)  equals 1, else 0
+
+    PARTS:
+    // zx, nx, zy, ny
+    Not16(in=x, out=notx);
+    Not16(in=y, out=noty);
+    Mux4Way16(a=x, b=false, c=notx, d=true, sel[0]=zx, sel[1]=nx, out=tmp1x);
+    Mux4Way16(a=y, b=false, c=noty, d=true, sel[0]=zy, sel[1]=ny, out=tmp1y);
+    // f
+    And16(a=tmp1x, b=tmp1y, out=tmp2);  
+    Add16(a=tmp1x, b=tmp1y, out=tmp3);
+    Mux16(a=tmp2, b=tmp3, sel=f, out=tmp4);
+    // no, out = tmp5
+    Not16(in=tmp4, out=nottmp4);
+    Mux16(a=tmp4, b=nottmp4, sel= no, out=tmp5);
+    And16(a=tmp5, b=true, out[15]=out15, out[0..7]=out027, out[8..15]=out8215, out=out);
+    // zr
+    Or8Way(in=out027, out=tmpzr1);
+    Or8Way(in=out8215, out=tmpzr2);
+    Or(a=tmpzr1, b=tmpzr2, out=tmpzr);
+    Mux(a=true, b=false, sel=tmpzr, out=zr);
+    // ng
+    Mux(a=false, b=true, sel=out15, out=ng);
+}
