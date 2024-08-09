@@ -17,3 +17,41 @@ void TIM2_IRQHandler(void) {
 		TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
 	}
 }
+
+void time_oc_test(void) {
+	my_time2_OC_init();
+	while(1) {
+		for (int i = 0; i <= 100; ++i) {
+			TIM_SetCompare1(TIM2, i);
+			Delay_ms(10);
+		}
+	}
+}
+
+void time_oc_afio_test(void) {
+	my_time2_OC_AFIO_init();
+	while(1) {
+		for (int i = 0; i <= 100; ++i) {
+			TIM_SetCompare1(TIM2, i);
+			Delay_ms(10);
+		}
+	}
+}
+
+void time_ic_test(void) {
+	my_time2_OC_init();
+	my_time3_ic_init();
+}
+
+uint16_t IC_Get_Freq(void) {
+	return (uint16_t)(10000 / (TIM_GetCapture1(TIM3) + 1));
+}
+
+void time_pwmi_test(void) {
+	my_time2_OC_init();
+	my_time3_pwmi_init();
+}
+
+uint32_t IC_GetDuty(void) {
+	return (TIM_GetCapture2(TIM3) + 1) * 100 / (TIM_GetCapture1(TIM3) + 1);
+}

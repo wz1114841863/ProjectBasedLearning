@@ -6,5 +6,11 @@
 #include "my_gpio.h"
 
 void time_test(void);
-	
+void time_oc_test(void);
+void time_oc_afio_test(void);
+void time_ic_test(void);
+void time_pwmi_test(void);
+uint32_t IC_GetDuty(void);
+uint16_t IC_Get_Freq(void);
+
 #endif
