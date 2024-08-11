@@ -679,6 +679,16 @@
               <FileType>5</FileType>
               <FilePath>.\Examples\test_time.h</FilePath>
             </File>
+            <File>
+              <FileName>test_adc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Examples\test_adc.c</FilePath>
+            </File>
+            <File>
+              <FileName>test_adc.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Examples\test_adc.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -723,6 +733,16 @@
               <FileName>my_time.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\Hardware\my_time.h</FilePath>
+            </File>
+            <File>
+              <FileName>my_adc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\my_adc.c</FilePath>
+            </File>
+            <File>
+              <FileName>my_adc.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\my_adc.h</FilePath>
             </File>
           </Files>
         </Group>
