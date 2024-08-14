@@ -699,6 +699,16 @@
               <FileType>1</FileType>
               <FilePath>.\Examples\test_dma.c</FilePath>
             </File>
+            <File>
+              <FileName>test_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Examples\test_uart.c</FilePath>
+            </File>
+            <File>
+              <FileName>test_uart.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Examples\test_uart.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -763,6 +773,16 @@
               <FileName>my_dma.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\Hardware\my_dma.h</FilePath>
+            </File>
+            <File>
+              <FileName>my_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\my_uart.c</FilePath>
+            </File>
+            <File>
+              <FileName>my_uart.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\my_uart.h</FilePath>
             </File>
           </Files>
         </Group>
