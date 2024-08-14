@@ -689,6 +689,16 @@
               <FileType>5</FileType>
               <FilePath>.\Examples\test_adc.h</FilePath>
             </File>
+            <File>
+              <FileName>test_dma.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Examples\test_dma.h</FilePath>
+            </File>
+            <File>
+              <FileName>test_dma.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Examples\test_dma.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -743,6 +753,16 @@
               <FileName>my_adc.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\Hardware\my_adc.h</FilePath>
+            </File>
+            <File>
+              <FileName>my_dma.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\my_dma.c</FilePath>
+            </File>
+            <File>
+              <FileName>my_dma.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\my_dma.h</FilePath>
             </File>
           </Files>
         </Group>
