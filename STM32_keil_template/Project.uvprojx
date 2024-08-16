@@ -784,6 +784,26 @@
               <FileType>5</FileType>
               <FilePath>.\Hardware\my_uart.h</FilePath>
             </File>
+            <File>
+              <FileName>my_spi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\my_spi.c</FilePath>
+            </File>
+            <File>
+              <FileName>my_spi.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\my_spi.h</FilePath>
+            </File>
+            <File>
+              <FileName>my_software_spi.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\my_software_spi.c</FilePath>
+            </File>
+            <File>
+              <FileName>my_software_spi.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\my_software_spi.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
