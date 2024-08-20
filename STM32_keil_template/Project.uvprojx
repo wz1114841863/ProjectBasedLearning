@@ -709,6 +709,16 @@
               <FileType>5</FileType>
               <FilePath>.\Examples\test_uart.h</FilePath>
             </File>
+            <File>
+              <FileName>test_oled.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Examples\test_oled.c</FilePath>
+            </File>
+            <File>
+              <FileName>test_oled.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Examples\test_oled.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -803,6 +813,41 @@
               <FileName>my_software_spi.h</FileName>
               <FileType>5</FileType>
               <FilePath>.\Hardware\my_software_spi.h</FilePath>
+            </File>
+            <File>
+              <FileName>my_i2c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\my_i2c.c</FilePath>
+            </File>
+            <File>
+              <FileName>my_i2c.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\my_i2c.h</FilePath>
+            </File>
+            <File>
+              <FileName>my_software_i2c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\my_software_i2c.c</FilePath>
+            </File>
+            <File>
+              <FileName>my_software_i2c.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\my_software_i2c.h</FilePath>
+            </File>
+            <File>
+              <FileName>my_oled.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\my_oled.c</FilePath>
+            </File>
+            <File>
+              <FileName>my_oled.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\my_oled.h</FilePath>
+            </File>
+            <File>
+              <FileName>my_oled_font.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\my_oled_font.h</FilePath>
             </File>
           </Files>
         </Group>
