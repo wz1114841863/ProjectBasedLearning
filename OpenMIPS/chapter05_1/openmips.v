@@ -110,6 +110,16 @@ module OpenMIPS(
         .reg1_data_i(reg1_data),
         .reg2_data_i(reg2_data),
 
+        // 处于执行阶段的指令的运算结果
+        .ex_wreg_i(ex_wreg_o),
+        .ex_wdata_i(ex_wdata_o),
+        .ex_wd_i(ex_wd_o),
+
+        // 处于访存阶段的指令的运算结果
+        .mem_wreg_i(mem_wreg_o),
+        .mem_wdata_i(mem_wdata_o),
+        .mem_wd_i(mem_wd_o),
+
         // 送到regfile模块的信息
         .reg1_read_o(reg1_read),
         .reg2_read_o(reg2_read),
@@ -122,7 +132,7 @@ module OpenMIPS(
         .reg1_o(id_reg1_o),
         .reg2_o(id_reg2_o),
         .wd_o(id_wd_o),
-        .wreg_o(id_wreg_o)
+        .wreg_o(id_werg_o)
     );
 
 
