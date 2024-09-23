@@ -53,7 +53,7 @@ module uart_cmd (
                 time_set[23:16] <= data_str[3];
                 time_set[15:8] <= data_str[4];
                 time_set[7:0] <= data_str[5];
-                ctrl_set <= #1 data_str[6];
+                ctrl_set <= data_str[6];
             end
         end
     end

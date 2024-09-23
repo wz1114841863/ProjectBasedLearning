@@ -14,7 +14,7 @@ module uart_rx_ctrl (
     input wire reset_n,  // 系统复位信号
     input wire uart_rx,  // 接收的串口数据
 
-    output reg signal    // 输出信号
+    output wire signal    // 输出信号
 );
     parameter baud_set = 3'd4;
     wire [7: 0] data_byte;
@@ -31,8 +31,6 @@ module uart_rx_ctrl (
         .rx_done(rx_done)
     );
 
-
-
     uart_cmd  uart_cmd_inst (
         .clk(clk),
         .reset_n(reset_n),
@@ -41,7 +39,6 @@ module uart_rx_ctrl (
         .ctrl_set(ctrl_set),
         .time_set(time_set)
     );
-
 
     uart_rx_counter  uart_rx_counter_inst (
         .clk(clk),
