@@ -50,9 +50,9 @@ module uart_data_tx_tb;
 
         #(`CLOCK_PERIOD * 10 + 1)
         reset_n = 1;
+        baud_set = 3'd4;
 
         #(`CLOCK_PERIOD * 100)
-        baud_set = 3'd4;
         data = 32'h01234567;
         send_en = 1;
 
@@ -60,6 +60,29 @@ module uart_data_tx_tb;
         send_en = 0;
 
         #(`CLOCK_PERIOD)
+        @(posedge tx_done);
+
+        #1;
+        data = 32'h12345678;
+        send_en = 1;
+
+        #(`CLOCK_PERIOD);
         send_en = 0;
+
+        #(`CLOCK_PERIOD);
+        @(posedge tx_done);
+        #1;
+        data = 32'h23456789;
+        send_en = 1;
+
+        #(`CLOCK_PERIOD);
+        send_en = 0;
+
+        #(`CLOCK_PERIOD);
+        @(posedge tx_done);
+
+        #1;
+        #(`CLOCK_PERIOD * 5000);
+         $stop;
     end
 endmodule

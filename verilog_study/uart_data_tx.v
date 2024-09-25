@@ -28,16 +28,16 @@ module uart_data_tx #(
     input [DATA_WIDTH - 1 : 0] data;
     input send_en;
     input [2: 0] baud_set;
-    output reg uart_tx;
+    output wire uart_tx;
     output reg tx_done;
-    output reg uart_state;
+    output wire uart_state;
 
     assign reset = ~reset_n;
 
     //====================== uart tx module instance ======================//
     reg byte_send_en;
     reg [7: 0] data_byte;
-    reg byte_tx_done;
+    wire byte_tx_done;
     uart_byte_tx  uart_byte_tx_inst (
         .clk(clk),
         .reset_n(reset_n),
@@ -64,7 +64,7 @@ module uart_data_tx #(
         end else begin
             case (state)
                 S0: begin
-                    if (send_en)
+                    if (send_en == 1'b1)
                         state <= S1;
                     else
                         state <= S0;
@@ -73,7 +73,7 @@ module uart_data_tx #(
                     state <= S2;
                 end
                 S2: begin
-                    if (byte_tx_done)
+                    if (byte_tx_done  == 1'b1)
                         state <= S3;
                     else
                         state <= S2;
@@ -94,20 +94,22 @@ module uart_data_tx #(
             data_byte <= 0;
             byte_send_en <= 0;
             cnt <= 0;
+            tx_done <= 0;
         end else begin
             case (state)
                 S0: begin
                     data_byte <= 0;
                     byte_send_en <= 0;
                     cnt <= 0;
-                    if (send_en)
+                    tx_done <= 0;
+                    if (send_en == 1'b1)
                         data_recv <= data;
                     else
                         data_recv <= data_recv;
                 end
                 S1: begin
                     byte_send_en <= 1;
-                    if(MSB_FIRST == 1)begin
+                    if(MSB_FIRST == 1) begin
 						data_byte <= data_recv[DATA_WIDTH-1: DATA_WIDTH - 8];
 						data_recv <= data_recv << 8;
 					end
@@ -122,12 +124,12 @@ module uart_data_tx #(
                         cnt <= cnt + 9'd8;
                 end
                 S3: begin
-                    if(cnt >= DATA_WIDTH)begin
+                    if(cnt >= DATA_WIDTH) begin
                         cnt <= 0;
                         tx_done <= 1;
                     end
                     else begin
-                        tx_done <= 1;
+                        tx_done <= 0;
                     end
                 end
                 default state <= S0;
