@@ -1,4 +1,3 @@
-`timescale 1ns / 1ps
 /****************************************
 
   Filename            : bin_counter.v

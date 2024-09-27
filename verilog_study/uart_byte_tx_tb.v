@@ -12,7 +12,7 @@
 ****************************************/
 module uart_byte_tx_tb;
 
-    //Ports
+    // Ports
     reg  clk;
     reg  reset_n;
     reg [7: 0] data_byte;

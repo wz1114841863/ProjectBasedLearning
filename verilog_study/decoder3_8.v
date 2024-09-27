@@ -1,10 +1,9 @@
-`timescale 1ns / 1ps
 /****************************************
 
   Filename            : decoder3_8.v
   Description         : This is a decoder 3-8.
   Author              : wz
-  Date                : 19-09-2023
+  Date                : 19-09-2024
   Version             : v1
   Version Description : First time edit.
 

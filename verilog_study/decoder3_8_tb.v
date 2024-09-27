@@ -2,7 +2,7 @@
 /****************************************
 
   Filename            : decoder3_8.v
-  Description         : This is a decoder 3-8.
+  Description         : This is a testbench for decoder 3-8.
   Author              : wz
   Date                : 19-09-2023
   Version             : v1
