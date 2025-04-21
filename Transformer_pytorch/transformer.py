@@ -54,7 +54,7 @@ def clones(module, N):
 class Encoder(nn.Module):
     """Core coder is a stack of N layers"""
 
-    def __int__(self, layer, N):
+    def __init__(self, layer, N):
         super().__init__()
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
@@ -184,12 +184,16 @@ def example_mask():
 def attention(query, key, value, mask=None, dropout=None):
     """Compute Scale dot Product Attention"""
     d_k = query.size(-1)
-    scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
+    scaling_factor = torch.sqrt(
+        query.new_tensor(d_k, dtype=torch.float32)  # 使用new_tensor保持设备一致性
+    )
+    scores = torch.matmul(query, key.transpose(-2, -1)) / scaling_factor
+    # scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
     if mask is not None:
         scores = scores.masked_fill(mask == 0, -1e9)
     p_attn = scores.softmax(dim=-1)
     if dropout is not None:
-        p_attn = dropout
+        p_attn = dropout(p_attn)
     return torch.matmul(p_attn, value), p_attn
 
 
@@ -198,7 +202,7 @@ class MultiheadAttention(nn.Module):
         super().__init__()
         assert d_model % h == 0
         # We assume d_v always equals d_k
-        self.d_k = d_model / h
+        self.d_k = d_model // h
         self.h = h
         self.linears = clones(nn.Linear(d_model, d_model), 4)
         self.attn = None
@@ -238,3 +242,190 @@ class PositionwiseFeedForward(nn.Module):
 
     def forward(self, x):
         return self.w_2(self.dropout(self.w_1(x).relu()))
+
+
+class Embeddings(nn.Module):
+
+    def __init__(self, d_model, vocab):
+        super().__init__()
+        self.lut = nn.Embedding(vocab, d_model)
+        self.d_model = d_model
+
+    def forward(self, x):
+        return self.lut(x) * math.sqrt(self.d_model)
+
+
+class PositionalEncoding(nn.Module):
+    """Implement the PE function."""
+
+    def __init__(self, d_model, dropout, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        # Compute the positional encodings once in log space.
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * -(math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x):
+        x = x + self.pe[:, : x.size(1)].requires_grad_(False)
+        return self.dropout(x)
+
+
+def example_positional():
+    pe = PositionalEncoding(20, 0)
+    y = pe.forward(torch.zeros(1, 100, 20))
+
+    data = pd.concat(
+        [
+            pd.DataFrame(
+                {
+                    "embedding": y[0, :, dim],
+                    "dimension": dim,
+                    "position": list(range(100)),
+                }
+            )
+            for dim in [4, 5, 6, 7]
+        ]
+    )
+
+    return (
+        alt.Chart(data)
+        .mark_line()
+        .properties(width=800)
+        .encode(x="position", y="embedding", color="dimension:N")
+        .interactive()
+    )
+
+
+def make_model(src_vocab, tgt_vocab, N=6, d_model=512, d_ff=2048, h=8, dropout=0.1):
+    """Helper: Construct a model from hyperparameters."""
+    cy = copy.deepcopy
+    attn = MultiheadAttention(h, d_model)
+    ff = PositionwiseFeedForward(d_model, d_ff, dropout)
+    position = PositionalEncoding(d_model, dropout)
+    model = EncoderDecoder(
+        Encoder(EncoderLayer(d_model, cy(attn), cy(ff), dropout), N),
+        Decoder(DecoderLayer(d_model, cy(attn), cy(attn), cy(ff), dropout), N),
+        nn.Sequential(Embeddings(d_model, src_vocab), cy(position)),
+        nn.Sequential(Embeddings(d_model, tgt_vocab), cy(position)),
+        Generator(d_model, tgt_vocab),
+    )
+
+    # This was important from their code.
+    # Initialize parameters with Glorot / fan_avg.
+    for p in model.parameters():
+        if p.dim() > 1:
+            nn.init.xavier_uniform_(p)
+    return model
+
+
+def inference_test():
+    test_model = make_model(11, 11, 2)
+    test_model.eval()
+    src = torch.LongTensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]])
+    src_mask = torch.ones(1, 1, 10)
+
+    memory = test_model.encode(src, src_mask)  # [1, 10, 512]
+    ys = torch.zeros(1, 1).type_as(src)  # [1, 1]
+    tgt_mask = None
+    for i in range(9):
+        tgt_mask = subsequent_mask(ys.size(1)).type_as(src.data)
+        out = test_model.decode(memory, src_mask, ys, tgt_mask)  # [1, 1, 512]
+        prob = test_model.generator(out[:, -1])  # [1, 11]
+        _, next_word = torch.max(prob, dim=1)  # [1]
+        next_word = next_word.data[0]  #
+        ys = torch.cat(
+            [ys, torch.empty(1, 1).type_as(src.data).fill_(next_word)], dim=1
+        )
+
+    print("Example Untrained Model Prediction:", ys)
+
+
+class EncoderWrapper(nn.Module):
+    """包装编码器部分"""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, src, src_mask):
+        return self.model.encode(src, src_mask)
+
+
+class DecoderStepWrapper(nn.Module):
+    """包装单步解码器部分"""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.generator = model.generator
+
+    def forward(self, memory, src_mask, ys, tgt_mask):
+        # 单步解码
+        out = self.model.decode(memory, src_mask, ys, tgt_mask)
+        # 生成预测概率
+        prob = self.generator(out[:, -1])  # 只取最后一个时间步
+        return prob
+
+
+def export_transformer():
+    # 1. 创建并初始化模型
+    test_model = make_model(11, 11, 2)
+    test_model.eval()
+
+    # 2. 准备示例输入
+    src = torch.LongTensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]])
+    src_mask = torch.ones(1, 1, 10)
+    ys = torch.zeros(1, 1).type_as(src)  # 初始解码输入 [1, 1]
+    tgt_mask = subsequent_mask(ys.size(1)).type_as(src.data)  # [1, 1, 1]
+
+    # 3. 导出编码器部分
+    encoder_wrapper = EncoderWrapper(test_model)
+    torch.onnx.export(
+        encoder_wrapper,
+        (src, src_mask),
+        "transformer_encoder.onnx",
+        input_names=["src", "src_mask"],
+        output_names=["memory"],
+        dynamic_axes={
+            "src": {1: "src_seq_len"},
+            "src_mask": {2: "src_seq_len"},
+            "memory": {1: "src_seq_len"},
+        },
+        opset_version=13,
+    )
+
+    # 4. 导出单步解码器部分
+    decoder_wrapper = DecoderStepWrapper(test_model)
+    torch.onnx.export(
+        decoder_wrapper,
+        (encoder_wrapper(src, src_mask), src_mask, ys, tgt_mask),
+        "transformer_decoder_step.onnx",
+        input_names=["memory", "src_mask", "tgt", "tgt_mask"],
+        output_names=["prob"],
+        dynamic_axes={
+            "memory": {1: "src_seq_len"},
+            "src_mask": {2: "src_seq_len"},
+            "tgt": {1: "tgt_seq_len"},
+            "tgt_mask": {1: "tgt_seq_len", 2: "tgt_seq_len"},
+        },
+        opset_version=13,
+    )
+    print("ONNX模型导出成功: transformer_encoder.onnx 和 transformer_decoder_step.onnx")
+
+
+def run_tests():
+    for _ in range(10):
+        inference_test()
+
+
+if __name__ == "__main__":
+    export_transformer()
+    # inference_test()
