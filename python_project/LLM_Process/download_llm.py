@@ -58,7 +58,6 @@ class LLMModel:
 
     def generate_text(self, prompt, max_length=50):
         """测试, 使用模型生成文本."""
-        # TODO: 需要修改, 不能很好的反映实际的生成速度, 波动很大.
         if self.model is None or self.tokenizer is None:
             self.load_model()
 
@@ -76,6 +75,7 @@ class LLMModel:
 
     def mesure_speed(self, prompt, num_tokens=50, num_iterations=10):
         """测量模型生成文本的速度."""
+        # TODO: 需要修改, 不能很好的反映实际的生成速度, 波动很大.
         if self.model is None or self.tokenizer is None:
             self.load_model()
 
@@ -153,6 +153,97 @@ class LLMModel:
         )
         return pll.item()
 
+    @staticmethod
+    def get_named_linear_layers(module):
+        """获取模型中所有线性层的名称. 参照awq/quantize"""
+        named_layers = {}
+        for name, layer in module.named_modules():
+            if isinstance(layer, torch.nn.Linear):
+                named_layers[name] = layer
+        return named_layers
+
+    @staticmethod
+    def get_blocks(model):
+        """根据模型的类型获取模型的层. 参照awq/quantize"""
+        if model.__class__.__name__ == "OPTForCausalLM":
+            layers = model.model.decoder.layers
+        elif model.__class__.__name__ == "LlamaForCausalLM":
+            layers = model.model.layers
+        else:
+            raise NotImplementedError(type(model))
+        return layers
+
+    @staticmethod
+    def pseudo_per_tensor_quantize(w, n_bits=8, zero_point=True, in_place=False):
+        """对模型进行per-tensor伪量化."""
+        org_w_shape = w.shape
+        assert w.dim() == 2, "Only support 2D weight matrix."
+        if zero_point:
+            max_val = w.max()
+            min_val = w.min()
+            max_int = 2 ** (n_bits - 1) - 1
+            min_int = 0
+            scale = (max_val - min_val).clamp(min=1e-5) / max_int
+            zeros = (-torch.round(min_val / scale)).clamp_(min_int, max_int)
+        else:  # abs max value quantize
+            max_val = w.abs().max()
+            zeros = 0
+            max_int = 2 ** (n_bits - 1) - 1
+            min_int = -(2 ** (n_bits - 1))
+            scale = max_int / max_val if max_val != 0 else 1.0
+
+        assert torch.isnan(scale).sum() == 0
+        assert torch.isnan(w).sum() == 0
+
+        if in_place:
+            ((w.div_(scale).round_().add_(zeros)).clamp_(min_int, max_int)).sub_(
+                zeros
+            ).mul_(scale)
+        else:
+            w = (
+                torch.clamp(torch.round(w / scale) + zeros, min_int, max_int) - zeros
+            ) * scale
+        assert torch.isnan(w).sum() == 0, "NaN found in quantized weights."
+
+        w = w.reshape(org_w_shape)
+        return w
+
+    @torch.no_grad()
+    def quantize_per_tensor(self, bits=8):
+        """对模型进行per-tensor量化."""
+        if self.model is None or self.tokenizer is None:
+            self.load_model()
+
+        layers = self.get_blocks(self.model)
+        for i in tqdm.tqdm(range(len(layers)), desc="Quantizing layers"):
+            layer = layers[i]
+            named_layers = self.get_named_linear_layers(layer)
+            for name, linear_layer in named_layers.items():
+                linear_layer.cuda()
+                linear_layer.weight.data = self.pseudo_per_tensor_quantize(
+                    linear_layer.weight.data, n_bits=bits
+                )
+                linear_layer.cpu()
+
+    def pseudo_per_channel_quantize(self, n_bits=8, zero_point=True, in_place=False):
+        """对模型进行per-channel伪量化."""
+
+    pass
+
+    @torch.no_grad()
+    def per_channel_quantize(self, bits=8):
+        """对模型进行per-channel量化."""
+        layers = self.get_blocks(self.model)
+        for i in tqdm.tqdm(range(len(layers)), desc="Quantizing layers"):
+            layer = layers[i]
+            named_layers = self.get_named_linear_layers(layer)
+            for name, linear_layer in named_layers.items():
+                linear_layer.cuda()
+                linear_layer.weight.data = self.pseudo_per_tensor_quantize(
+                    linear_layer.weight.data, n_bits=bits
+                )
+                linear_layer.cpu()
+
 
 if __name__ == "__main__":
     custom_cache_dir = "./cache"
@@ -178,8 +269,8 @@ if __name__ == "__main__":
 
     # llm_model.calculate_perplexity()
 
-    llm_model.mesure_speed(
-        "This is a test prompt for measuring the speed of the LLM model.",
-        num_tokens=1000,
-        num_iterations=10,
-    )
+    # llm_model.mesure_speed(
+    #     "This is a test prompt for measuring the speed of the LLM model.",
+    #     num_tokens=1000,
+    #     num_iterations=10,
+    # )

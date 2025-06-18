@@ -1,5 +1,6 @@
 # uv python 环境
 .venv/
+offline_packages/
 # 下载的预训练模型
 cache/
 # 下载的数据集
