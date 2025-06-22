@@ -5,8 +5,14 @@ import torch.nn.functional as F
 import numpy as np
 import quant_cuda
 
-class QuantBase():
+
+class QuantBase:
     def _quantization(x, quant_grid):
+        """执行实际的量化操作
+        x: 输入张量
+        quant_grid: 量化网格, 允许的量化值集合
+        返回量化后的张量
+        """
         shape = x.shape
         quant_array = x.reshape(-1)
         quant_grid = quant_grid.type_as(quant_array)
@@ -22,27 +28,40 @@ class QuantBase():
 
 
 class Quantizer(nn.Module):
-    def __init__(self, mode="base", bit=8, is_signed=True, is_enable=False, is_input=False, args=None, operator=None):
+    def __init__(
+        self,
+        mode="base",
+        bit=8,
+        is_signed=True,
+        is_enable=False,
+        is_input=False,
+        args=None,
+        operator=None,
+    ):
         super(Quantizer, self).__init__()
         self.mode = mode
         self.is_input = is_input
         self.is_signed = is_signed
         self.is_enable = is_enable
-        self.is_enable_activation = is_enable
+        self.is_enable_activation = is_enable  # TODO: 共用is_enable变量, 需要修改
         self.is_enable_weight = is_enable
         self.args = args
         self.operator = operator
-        
+
         self.w_up = self.args.w_up
         self.a_up = self.args.a_up
         self.w_low = self.args.w_low
         self.a_low = self.args.a_low
 
         self.alpha = nn.Parameter(torch.tensor(1.0, requires_grad=True))
-        self.register_buffer('bit', torch.tensor(bit))
-        self.register_buffer('has_inited_quant_para', torch.tensor(0.0))
-        self.register_buffer('quant_grid', torch.ones(2**bit))
-        self.register_buffer('outliers', torch.ones(2**bit))
+        # 使用register_buffer存在以下区别:
+        #  1. 会被自动添加到模型的state_dict中,保存和加载模型时会包含该张量
+        #  2. 当模型被移动到GPU或CPU时, 该张量会自动随模型一起移动
+        #  3. 不会被视为模型的参数, 因此不会参与梯度计算和优化
+        self.register_buffer("bit", torch.tensor(bit))
+        self.register_buffer("has_inited_quant_para", torch.tensor(0.0))
+        self.register_buffer("quant_grid", torch.ones(2**bit))
+        self.register_buffer("outliers", torch.ones(2**bit))
         self.percent = self.args.percent / 100
         self.is_perchannel = True
         if is_input:
@@ -56,7 +75,7 @@ class Quantizer(nn.Module):
 
     def disable_input_quantization(self):
         self.is_enable_activation = False
-        
+
     def enable_quantization(self, name):
         self.name = name
         self.is_enable = True
@@ -66,55 +85,58 @@ class Quantizer(nn.Module):
         self.is_enable = False
 
     def update_signed(self, tensor):
+        """是否使用有符号量化"""
         if tensor.min() < 0:
             self.is_signed = True
 
     @torch.no_grad()
     def int_value(self):
+        """生成整数量化值"""
         bit_width = self.bit.item()
         B = bit_width
         if self.is_signed:
             B = bit_width - 1
 
         values = []
-        values.append(0.)
-        for i in range(1, 2 ** B):
+        values.append(0.0)
+        for i in range(1, 2**B):
             values.append(i)
             if self.is_signed:
                 values.append(-i)
-                
-        values = torch.tensor(values, device=self.quant_grid.device) 
+
+        values = torch.tensor(values, device=self.quant_grid.device)
         values, _ = torch.sort(values)
         # add a bias to normalize the codebook (the threshold between outliers and normal values is 32)
-        values *= 32 / (2 ** B)
+        values *= 32 / (2**B)
 
         return values
 
     @torch.no_grad()
-    def flint_value(self,  exp_base = 0):
+    def flint_value(self, exp_base=0):
+        """生成flint量化值"""
         B = self.bit.item()
         if self.is_signed:
             B = B - 1
         value_bit = B
-        assert(value_bit >= 2)
+        assert value_bit >= 2
 
-        exp_num =     value_bit * 2 - 1
+        exp_num = value_bit * 2 - 1
         neg_exp_num = value_bit - 1
         pos_exp_num = value_bit - 1
-        
+
         exp_max = pos_exp_num + exp_base
         exp_min = -neg_exp_num
 
         ## zero
-        values = [0.]
+        values = [0.0]
 
         ## exponent negtive
         for i in range(0, neg_exp_num + 1):
             exp_bit = i + 2
             exp_value = -(exp_bit - 1)
             mant_bit = value_bit - exp_bit
-            for j in range(int(2 ** mant_bit)):
-                v = 2 ** exp_value * (1 + 2 ** (-mant_bit) * j)
+            for j in range(int(2**mant_bit)):
+                v = 2**exp_value * (1 + 2 ** (-mant_bit) * j)
                 values.append(v)
                 if self.is_signed:
                     values.append(-v)
@@ -123,69 +145,77 @@ class Quantizer(nn.Module):
         exp_bit = 2
         exp_value = 0
         mant_bit = value_bit - exp_bit
-        for j in range(int(2 ** mant_bit)):
+        for j in range(int(2**mant_bit)):
             v = 2 ** (exp_value + exp_base) * (1 + 2 ** (-mant_bit) * j)
             values.append(v)
             if self.is_signed:
                 values.append(-v)
-                
-        ## exponent positive     
+
+        ## exponent positive
         for i in range(1, pos_exp_num):
             exp_bit = i + 2
             exp_value = i
             mant_bit = value_bit - exp_bit
-            for j in range(int(2 ** mant_bit)):
+            for j in range(int(2**mant_bit)):
                 v = 2 ** (exp_value + exp_base) * (1 + 2 ** (-mant_bit) * j)
                 values.append(v)
                 if self.is_signed:
                     values.append(-v)
-                    
+
         ## max value
-        values.append(2 ** exp_max)
+        values.append(2**exp_max)
         if self.is_signed:
-            values.append(-2 ** exp_max)
-            
+            values.append(-(2**exp_max))
+
         values = torch.tensor(values, device=self.quant_grid.device)
         values, _ = torch.sort(values)
         # add a bias to normalize the codebook (the threshold between outliers and normal values is 32)
-        values *= 32 / (2 ** exp_max)
+        values *= 32 / (2**exp_max)
 
         return values
-    
-    # abfloat 
+
+    # abfloat
     @torch.no_grad()
-    def outlier_value(self, exp_bit = 2, exp_base = 5):
+    def outlier_value(self, exp_bit=2, exp_base=5):
+        """生成outliers的量化值"""
         B = self.bit.item()
         if self.is_signed:
             B = B - 1
-            
+
         value_bit = B
         mant_bit = value_bit - exp_bit
         values = []
-        
-        for i in range(exp_base, exp_base + 2 ** exp_bit):
-            for j in range(int(2 ** mant_bit)):
+
+        for i in range(exp_base, exp_base + 2**exp_bit):
+            for j in range(int(2**mant_bit)):
                 if i == exp_base and j == 0:
                     continue
 
-                v = 2 ** i * (1 + 2 ** (-mant_bit) * j)
+                v = 2**i * (1 + 2 ** (-mant_bit) * j)
                 values.append(v)
                 if self.is_signed:
                     values.append(-v)
-                    
+
         values = torch.tensor(values, device=self.quant_grid.device)
         values, _ = torch.sort(values)
-                    
+
         return values
 
     @torch.no_grad()
     def mse_loss(self, quant_tensor, source_tensor, p=2.0, is_perchannel=True):
         if is_perchannel:
-            mean_tensor =  (quant_tensor-source_tensor).abs().pow(p).view(quant_tensor.shape[0], -1).mean(-1).unsqueeze(1)
+            mean_tensor = (
+                (quant_tensor - source_tensor)
+                .abs()
+                .pow(p)
+                .view(quant_tensor.shape[0], -1)
+                .mean(-1)
+                .unsqueeze(1)
+            )
             return mean_tensor
         else:
-            return (quant_tensor-source_tensor).abs().pow(p).mean()
-        
+            return (quant_tensor - source_tensor).abs().pow(p).mean()
+
     @torch.no_grad()
     def search_mse(self, tensor):
         if self.is_perchannel and (not self.is_input):
@@ -195,7 +225,7 @@ class Quantizer(nn.Module):
                 x_max = torch.maximum((mean + 3 * std).abs(), (mean - 3 * std).abs())
             else:
                 x_max, _ = tensor.view(tensor.shape[0], -1).abs().max(1)
-            x_max = x_max.unsqueeze(1)            
+            x_max = x_max.unsqueeze(1)
             best_score = torch.ones_like(x_max) * 1e10
             alpha = x_max.clone()
             base_alpha = x_max.clone()
@@ -209,7 +239,7 @@ class Quantizer(nn.Module):
                 score = self.mse_loss(quant_tensor, tensor)
                 alpha[score < best_score] = new_alpha[score < best_score]
                 best_score[score < best_score] = score[score < best_score]
-        else:        
+        else:
             if not self.args.no_outlier:
                 mean = tensor.mean()
                 std = tensor.std()
@@ -218,14 +248,14 @@ class Quantizer(nn.Module):
                 x_max = tensor.abs().max()
             best_score = 1e10
             alpha = x_max.clone()
-            base_alpha = alpha.clone()            
+            base_alpha = alpha.clone()
             lb = int(self.a_low)
             ub = int(self.a_up)
             for i in range(lb, ub, 2):
                 new_alpha = base_alpha * (i * 0.01)
                 self.alpha.data = new_alpha
                 quant_tensor = self._forward(tensor)
-                score = self.mse_loss(quant_tensor, tensor, p = 2, is_perchannel=False)
+                score = self.mse_loss(quant_tensor, tensor, p=2, is_perchannel=False)
                 if score < best_score:
                     best_score = score
                     alpha = new_alpha
@@ -238,17 +268,17 @@ class Quantizer(nn.Module):
         mse_list = []
         mode = self.mode
         if "-int" in mode:
-            self.mode = 'int'
+            self.mode = "int"
             self.quant_grid.data = self.int_value()
             best_score_int, _, _ = self.search_mse(data)
-            modes.append('int')
+            modes.append("int")
             mse_list.append(best_score_int.item())
 
         if "-flint" in mode:
-            self.mode = 'flint'
+            self.mode = "flint"
             self.quant_grid.data = self.flint_value()
             best_score_flint, _, _ = self.search_mse(data)
-            modes.append('flint')
+            modes.append("flint")
             mse_list.append(best_score_flint.item())
 
         mse_list = np.array(mse_list)
@@ -257,9 +287,9 @@ class Quantizer(nn.Module):
 
     @torch.no_grad()
     def _init_quant_para(self, data, data_b):
-        with torch.no_grad():                    
+        with torch.no_grad():
             if self.has_inited_quant_para == 0:
-                self.update_signed(data)                
+                self.update_signed(data)
                 self.outliers.data = self.outlier_value()
 
                 if self.is_perchannel:
@@ -269,7 +299,7 @@ class Quantizer(nn.Module):
                     self.alpha.data = data.abs().max()
 
                 if self.bit > 6:
-                    self.mode = 'int'
+                    self.mode = "int"
                     self.quant_grid.data = self.int_value()
                 else:
                     if "ant-" in self.mode:
@@ -281,36 +311,40 @@ class Quantizer(nn.Module):
                     self.quant_grid.data = self.int_value()
                 else:
                     raise RuntimeError("Unsupported mode: " + self.mode)
-                
+
                 _, self.alpha.data, alpha_ratio = self.search_mse(data)
 
                 quant_data = self._forward(data)
-                self.mse = self.mse_loss(quant_data, data, 2, is_perchannel=self.is_perchannel).mean()
+                self.mse = self.mse_loss(
+                    quant_data, data, 2, is_perchannel=self.is_perchannel
+                ).mean()
                 print(self.mode, end="\t")
-                print("%d-bit \t %s," %(self.bit.item(), self.name))
-                
-                self.has_inited_quant_para.data = torch.ones_like(self.has_inited_quant_para)
-         
-    @torch.no_grad()   
+                print("%d-bit \t %s," % (self.bit.item(), self.name))
+
+                self.has_inited_quant_para.data = torch.ones_like(
+                    self.has_inited_quant_para
+                )
+
+    @torch.no_grad()
     def _forward(self, data, display=False):
         scale = self.alpha / torch.max(self.quant_grid)
-        
-        if self.is_perchannel: 
+
+        if self.is_perchannel:
             data = (data.view(data.shape[0], -1) / scale).view(data.shape)
         else:
             data = data / scale
-            
+
         if not self.args.no_outlier:
-            quant_grid = torch.cat((self.quant_grid, self.outliers), dim = 0)
+            quant_grid = torch.cat((self.quant_grid, self.outliers), dim=0)
         else:
             quant_grid = self.quant_grid
-            
+
         quant_data = QuantBase.forward(data, quant_grid)
         shape = data.shape
-        
+
         # Outlier Victim Pair Encoding
         if not self.args.no_outlier:
-            quant_data = quant_data.view(-1)                
+            quant_data = quant_data.view(-1)
             mask = quant_data.abs() > 32
             victim_odd = torch.roll(mask, 1, -1)
             victim_odd[::2] = 0
@@ -321,7 +355,7 @@ class Quantizer(nn.Module):
 
         quant_data = quant_data.view(shape)
         tensor = (quant_data - data).detach() + data
-        
+
         if self.is_perchannel:
             tensor = (tensor.view(tensor.shape[0], -1) * scale).view(data.shape)
         else:
@@ -330,7 +364,7 @@ class Quantizer(nn.Module):
         return tensor
 
     @torch.no_grad()
-    def tensor_forward(self, tensor, input_tensor = None):
+    def tensor_forward(self, tensor, input_tensor=None):
         if self.mode == "base":
             return tensor
         if not self.is_enable:
@@ -346,24 +380,42 @@ class Quantizer(nn.Module):
 
         q_tensor = self._forward(tensor)
 
-        return q_tensor    
+        return q_tensor
+
 
 class TensorQuantizer(Quantizer):
     def __init__(self, **kwargs):
         super(TensorQuantizer, self).__init__(**kwargs)
 
-    def forward(self, tensor, input_tensor = None):
+    def forward(self, tensor, input_tensor=None):
         return self.tensor_forward(tensor, input_tensor)
+
 
 class Conv1dQuantizer(nn.Module):
     """
     Class to quantize given convolutional layer
     """
+
     def __init__(self, mode=None, wbit=None, abit=None, args=None):
         super(Conv1dQuantizer, self).__init__()
-        assert mode is not None,'Quantizer is not initilized!'
-        self.quant_weight = TensorQuantizer(mode=mode, bit=wbit, is_signed=True, is_enable=True, args=args, operator=self._conv_forward)
-        self.quant_input  = TensorQuantizer(mode=mode, bit=abit, is_signed=False, is_enable=True, args=args, operator=self._conv_forward, is_input=True)
+        assert mode is not None, "Quantizer is not initilized!"
+        self.quant_weight = TensorQuantizer(
+            mode=mode,
+            bit=wbit,
+            is_signed=True,
+            is_enable=True,
+            args=args,
+            operator=self._conv_forward,
+        )
+        self.quant_input = TensorQuantizer(
+            mode=mode,
+            bit=abit,
+            is_signed=False,
+            is_enable=True,
+            args=args,
+            operator=self._conv_forward,
+            is_input=True,
+        )
 
     def set_param(self, conv):
 
@@ -373,7 +425,7 @@ class Conv1dQuantizer(nn.Module):
             self.bias = nn.Parameter(conv.bias.data.clone())
         except AttributeError:
             self.bias = None
-            
+
     def _conv_forward(self, x, weight):
         size_out = x.size()[:-1] + (self.nf,)
         x = torch.addmm(self.bias, x.view(-1, x.size(-1)), weight)
@@ -390,17 +442,33 @@ class Conv2dQuantizer(nn.Module):
     """
     Class to quantize given convolutional layer
     """
+
     def __init__(self, mode=None, wbit=None, abit=None, args=None):
         super(Conv2dQuantizer, self).__init__()
-        assert mode is not None,'Quantizer is not initilized!'
-        self.quant_weight = TensorQuantizer(mode=mode, bit=wbit, is_signed=True, is_enable=True, args=args, operator=self._conv_forward)
-        self.quant_input  = TensorQuantizer(mode=mode, bit=abit, is_signed=False, is_enable=True, args=args, operator=self._conv_forward, is_input=True)
+        assert mode is not None, "Quantizer is not initilized!"
+        self.quant_weight = TensorQuantizer(
+            mode=mode,
+            bit=wbit,
+            is_signed=True,
+            is_enable=True,
+            args=args,
+            operator=self._conv_forward,
+        )
+        self.quant_input = TensorQuantizer(
+            mode=mode,
+            bit=abit,
+            is_signed=False,
+            is_enable=True,
+            args=args,
+            operator=self._conv_forward,
+            is_input=True,
+        )
 
     def set_param(self, conv):
         self.in_channels = conv.in_channels
         self.out_channels = conv.out_channels
-        
-        self.quant_weight.alpha.data = torch.ones([self.out_channels,1])
+
+        self.quant_weight.alpha.data = torch.ones([self.out_channels, 1])
 
         self.kernel_size = conv.kernel_size
         self.stride = conv.stride
@@ -414,8 +482,15 @@ class Conv2dQuantizer(nn.Module):
             self.bias = None
 
     def _conv_forward(self, input, weight):
-        return F.conv2d(input, weight, self.bias, self.stride,
-                        self.padding, self.dilation, self.groups)
+        return F.conv2d(
+            input,
+            weight,
+            self.bias,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+        )
 
     def forward(self, input):
         weight = self.quant_weight(self.weight, input)
@@ -427,11 +502,27 @@ class LinearQuantizer(nn.Module):
     """
     Class to quantize given linear layer
     """
+
     def __init__(self, mode=None, wbit=None, abit=None, args=None):
         super(LinearQuantizer, self).__init__()
-        assert mode is not None,'Quantizer is not initilized!'
-        self.quant_weight = TensorQuantizer(mode=mode, bit=wbit, is_signed=True, is_enable=True, args=args, operator=F.linear)
-        self.quant_input  = TensorQuantizer(mode=mode, bit=abit, is_signed=False, is_enable=True, args=args, operator=F.linear, is_input=True)
+        assert mode is not None, "Quantizer is not initilized!"
+        self.quant_weight = TensorQuantizer(
+            mode=mode,
+            bit=wbit,
+            is_signed=True,
+            is_enable=True,
+            args=args,
+            operator=F.linear,
+        )
+        self.quant_input = TensorQuantizer(
+            mode=mode,
+            bit=abit,
+            is_signed=False,
+            is_enable=True,
+            args=args,
+            operator=F.linear,
+            is_input=True,
+        )
 
     def set_param(self, linear):
         self.in_features = linear.in_features
@@ -444,7 +535,7 @@ class LinearQuantizer(nn.Module):
         except AttributeError:
             self.bias = None
 
-    def forward(self, input): 
-        weight = self.quant_weight(self.weight, input) 
+    def forward(self, input):
+        weight = self.quant_weight(self.weight, input)
         input = self.quant_input(input, self.weight)
         return F.linear(input, weight, self.bias)

@@ -1,40 +1,28 @@
 #!/usr/bin/env python
 # coding=utf-8
-# Copyright 2020 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """
 Fine-tuning the library models for causal language modeling (GPT, GPT-2, CTRL, ...) on a text file or a dataset.
 
 Here is the full list of checkpoints on the hub that can be fine-tuned by this script:
 https://huggingface.co/models?filter=text-generation
-"""
-# You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
 
+You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
+
+这个文件是一个涉及配置, 加载模型, 数据集处理, 训练, 量化和评估的脚本, 不涉及具体的量化细节, 需要注意的是其中的量化部分, 量化后的模型是否能直接用用于加载和训练? 以Olive为例, 涉及到特殊的操作(牺牲oultiers周围的正常值)
+"""
 import logging
 import math
 import os
-os.environ["WANDB_DISABLED"] = "true"
 import sys
-from dataclasses import dataclass, field
-from itertools import chain
-from typing import Optional
 import torch
 import datasets
-from datasets import load_dataset
-
 import evaluate
 import transformers
+
+from itertools import chain
+from typing import Optional
+from dataclasses import dataclass, field
+from datasets import load_dataset
 from transformers import (
     CONFIG_MAPPING,
     MODEL_FOR_CAUSAL_LM_MAPPING,
@@ -45,7 +33,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
     default_data_collator,
-    is_torch_tpu_available,
+    # is_torch_tpu_available,
     set_seed,
 )
 from transformers.testing_utils import CaptureLogger
@@ -53,23 +41,31 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
-sys.path.append("../antquant")
+# os.environ["WANDB_DISABLED"] = "true"  # 已废弃
+# 设置模型和数据集缓存路径
+os.environ["TRANSFORMERS_CACHE"] = "LLM/Models/"
+os.environ["HF_DATASETS_CACHE"] = "LLM/Datasets/"
+
+sys.path.append(
+    "/home/wz/AI/ProjectBasedLearning/LLM/ANT-Quantization/olive_quantization/antquant"
+)
 # sys.path.append("../antquant_new")
 from quant_model import *
 from quant_utils import *
 
-# Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-# check_min_version("4.25.0.dev0")
 
-require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/language-modeling/requirements.txt")
+require_version(
+    "datasets>=1.8.0",
+    "To fix: pip install -r examples/pytorch/language-modeling/requirements.txt",
+)
 
 logger = logging.getLogger(__name__)
-
 
 MODEL_CONFIG_CLASSES = list(MODEL_FOR_CAUSAL_LM_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 
+# 下面定义的三个类和导入的TrainingArguments是为了方便参数解析和管理
 @dataclass
 class ModelArguments:
     """
@@ -86,7 +82,10 @@ class ModelArguments:
     )
     model_type: Optional[str] = field(
         default=None,
-        metadata={"help": "If training from scratch, pass a model type from the list: " + ", ".join(MODEL_TYPES)},
+        metadata={
+            "help": "If training from scratch, pass a model type from the list: "
+            + ", ".join(MODEL_TYPES)
+        },
     )
     config_overrides: Optional[str] = field(
         default=None,
@@ -98,22 +97,34 @@ class ModelArguments:
         },
     )
     config_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
+        default=None,
+        metadata={
+            "help": "Pretrained config name or path if not the same as model_name"
+        },
     )
     tokenizer_name: Optional[str] = field(
-        default=None, metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
+        default=None,
+        metadata={
+            "help": "Pretrained tokenizer name or path if not the same as model_name"
+        },
     )
     cache_dir: Optional[str] = field(
         default=None,
-        metadata={"help": "Where do you want to store the pretrained models downloaded from huggingface.co"},
+        metadata={
+            "help": "Where do you want to store the pretrained models downloaded from huggingface.co"
+        },
     )
     use_fast_tokenizer: bool = field(
         default=True,
-        metadata={"help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."},
+        metadata={
+            "help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."
+        },
     )
     model_revision: str = field(
         default="main",
-        metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."},
+        metadata={
+            "help": "The specific model version to use (can be a branch name, tag name or commit id)."
+        },
     )
     use_auth_token: bool = field(
         default=False,
@@ -126,7 +137,9 @@ class ModelArguments:
     )
 
     def __post_init__(self):
-        if self.config_overrides is not None and (self.config_name is not None or self.model_name_or_path is not None):
+        if self.config_overrides is not None and (
+            self.config_name is not None or self.model_name_or_path is not None
+        ):
             raise ValueError(
                 "--config_overrides can't be used in combination with --config_name or --model_name_or_path"
             )
@@ -139,15 +152,23 @@ class DataTrainingArguments:
     """
 
     dataset_name: Optional[str] = field(
-        default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
+        default=None,
+        metadata={"help": "The name of the dataset to use (via the datasets library)."},
     )
     dataset_config_name: Optional[str] = field(
-        default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
+        default=None,
+        metadata={
+            "help": "The configuration name of the dataset to use (via the datasets library)."
+        },
     )
-    train_file: Optional[str] = field(default=None, metadata={"help": "The input training data file (a text file)."})
+    train_file: Optional[str] = field(
+        default=None, metadata={"help": "The input training data file (a text file)."}
+    )
     validation_file: Optional[str] = field(
         default=None,
-        metadata={"help": "An optional input evaluation data file to evaluate the perplexity on (a text file)."},
+        metadata={
+            "help": "An optional input evaluation data file to evaluate the perplexity on (a text file)."
+        },
     )
     max_train_samples: Optional[int] = field(
         default=None,
@@ -179,7 +200,8 @@ class DataTrainingArguments:
         },
     )
     overwrite_cache: bool = field(
-        default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
+        default=False,
+        metadata={"help": "Overwrite the cached training and evaluation sets"},
     )
     validation_split_percentage: Optional[int] = field(
         default=5,
@@ -192,10 +214,11 @@ class DataTrainingArguments:
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     keep_linebreaks: bool = field(
-        default=True, metadata={"help": "Whether to keep line breaks when using TXT files or not."}
+        default=True,
+        metadata={"help": "Whether to keep line breaks when using TXT files or not."},
     )
 
-    eval_subset: str = field(default='validation')
+    eval_subset: str = field(default="validation")
     stride: int = field(default=512)
     patience: int = field(default=None)
     prompt: str = field(default=None)
@@ -211,15 +234,30 @@ class DataTrainingArguments:
     )
 
     def __post_init__(self):
-        if self.dataset_name is None and self.train_file is None and self.validation_file is None:
-            raise ValueError("Need either a dataset name or a training/validation file.")
+        if (
+            self.dataset_name is None
+            and self.train_file is None
+            and self.validation_file is None
+        ):
+            raise ValueError(
+                "Need either a dataset name or a training/validation file."
+            )
         else:
             if self.train_file is not None:
                 extension = self.train_file.split(".")[-1]
-                assert extension in ["csv", "json", "txt"], "`train_file` should be a csv, a json or a txt file."
+                assert extension in [
+                    "csv",
+                    "json",
+                    "txt",
+                ], "`train_file` should be a csv, a json or a txt file."
             if self.validation_file is not None:
                 extension = self.validation_file.split(".")[-1]
-                assert extension in ["csv", "json", "txt"], "`validation_file` should be a csv, a json or a txt file."
+                assert extension in [
+                    "csv",
+                    "json",
+                    "txt",
+                ], "`validation_file` should be a csv, a json or a txt file."
+
 
 @dataclass
 class QuantizeArguments:
@@ -227,30 +265,18 @@ class QuantizeArguments:
     Arguments for quantization.
     """
 
-    mode: Optional[str] = field(
-        default='source', metadata={"help": "quantizer mode"}
-    )
-    wbit: Optional[int] = field(
-        default=8, metadata={"help": "weight bit width"}
-    )
-    abit: Optional[int] = field(
-        default=8, metadata={"help": "activation bit width"}
-    )
-    percent: Optional[int] = field(
-        default=100, metadata={"help": "percent"}
-    )
-    sigma: Optional[float] = field(
-        default=0, metadata={"help": "percent"}
-    )
+    mode: Optional[str] = field(default="source", metadata={"help": "quantizer mode"})
+    wbit: Optional[int] = field(default=8, metadata={"help": "weight bit width"})
+    abit: Optional[int] = field(default=8, metadata={"help": "activation bit width"})
+    percent: Optional[int] = field(default=100, metadata={"help": "percent"})
+    sigma: Optional[float] = field(default=0, metadata={"help": "percent"})
     disable_quant: Optional[bool] = field(
         default=False, metadata={"help": "disable quant"}
     )
     disable_input_quantization: Optional[bool] = field(
         default=False, metadata={"help": "quant_input"}
     )
-    search: Optional[bool] = field(
-        default=False, metadata={"help": "search alpha"}
-    )
+    search: Optional[bool] = field(default=False, metadata={"help": "search alpha"})
     w_up: Optional[int] = field(
         default=150, metadata={"help": "weight search upper bound"}
     )
@@ -278,21 +304,21 @@ class QuantizeArguments:
 
 
 def main():
-    # See all possible arguments in src/transformers/training_args.py
-    # or by passing the --help flag to this script.
-    # We now keep distinct sets of args, for a cleaner separation of concerns.
+    parser = HfArgumentParser(
+        (ModelArguments, DataTrainingArguments, TrainingArguments, QuantizeArguments)
+    )
 
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments, QuantizeArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        # If we pass only one argument to the script and it's the path to a json file,
-        # let's parse it to get our arguments.
-        model_args, data_args, training_args, quantizer_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+        # 仅传递了json路径, 解析json文件
+        model_args, data_args, training_args, quantizer_args = parser.parse_json_file(
+            json_file=os.path.abspath(sys.argv[1])
+        )
     else:
-        model_args, data_args, training_args, quantizer_args = parser.parse_args_into_dataclasses()
+        # 根据命令行参数解析并实例化相应类
+        model_args, data_args, training_args, quantizer_args = (
+            parser.parse_args_into_dataclasses()
+        )
 
-    # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
-    # information sent is the one passed as arguments along with your Python/PyTorch versions.
-    send_example_telemetry("run_clm", model_args, data_args)
     training_args.per_device_eval_batch_size = data_args.eval_batch_size
     training_args.per_device_train_batch_size = data_args.train_batch_size
     # Setup logging
@@ -309,10 +335,11 @@ def main():
     transformers.utils.logging.enable_default_handler()
     transformers.utils.logging.enable_explicit_format()
 
-    # training_args.local_rank = 0
+    # 训练相关配置在Olive中应该用不到, 因为Olive是PTQ量化.
     if training_args.local_rank == -1 or training_args.no_cuda:
         device = torch.device(
-            "cuda" if torch.cuda.is_available() and not training_args.no_cuda else "cpu")
+            "cuda" if torch.cuda.is_available() and not training_args.no_cuda else "cpu"
+        )
         n_gpu = torch.cuda.device_count()
     else:
         torch.cuda.set_device(training_args.local_rank)
@@ -320,25 +347,32 @@ def main():
         n_gpu = 1
         # Initializes the distributed backend which will take care of
         # sychronizing nodes/GPUs.
-        if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(backend='nccl')
+        # if not torch.distributed.is_initialized():
+        #     torch.distributed.init_process_group(backend="nccl")
+
     # Log on each process the small summary:
     logger.warning(
         f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
-        + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
+        # + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
     )
     logger.info(f"Training/evaluation parameters {training_args}")
 
     # Detecting last checkpoint.
     last_checkpoint = None
-    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:
+    if (
+        os.path.isdir(training_args.output_dir)
+        and training_args.do_train
+        and not training_args.overwrite_output_dir
+    ):
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
         if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:
             raise ValueError(
                 f"Output directory ({training_args.output_dir}) already exists and is not empty. "
                 "Use --overwrite_output_dir to overcome."
             )
-        elif last_checkpoint is not None and training_args.resume_from_checkpoint is None:
+        elif (
+            last_checkpoint is not None and training_args.resume_from_checkpoint is None
+        ):
             logger.info(
                 f"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change "
                 "the `--output_dir` or add `--overwrite_output_dir` to train from scratch."
@@ -347,14 +381,6 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
-    # 'text' is found. You can easily tweak this behavior (see below).
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
     if data_args.dataset_name is not None:
         # Downloading and loading a dataset from the hub.
@@ -420,19 +446,10 @@ def main():
                 **dataset_args,
             )
 
-    if not (training_args.do_train or data_args.eval_subset == 'train'):
-        # If not training and not evaluating on train, we do not need to process it
+    if not (training_args.do_train or data_args.eval_subset == "train"):
         del raw_datasets["train"]
-        
-    # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
-    # https://huggingface.co/docs/datasets/loading_datasets.html.
 
     # Load pretrained model and tokenizer
-    #
-    # Distributed training:
-    # The .from_pretrained methods guarantee that only one local process can concurrently
-    # download model & vocab.
-
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
         "revision": model_args.model_revision,
@@ -441,7 +458,9 @@ def main():
     if model_args.config_name:
         config = AutoConfig.from_pretrained(model_args.config_name, **config_kwargs)
     elif model_args.model_name_or_path:
-        config = AutoConfig.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+        config = AutoConfig.from_pretrained(
+            model_args.model_name_or_path, **config_kwargs
+        )
     else:
         config = CONFIG_MAPPING[model_args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
@@ -457,9 +476,13 @@ def main():
         "use_auth_token": True if model_args.use_auth_token else None,
     }
     if model_args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.tokenizer_name, **tokenizer_kwargs
+        )
     elif model_args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, **tokenizer_kwargs)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.model_name_or_path, **tokenizer_kwargs
+        )
     else:
         raise ValueError(
             "You are instantiating a new tokenizer from scratch. This is not supported by this script."
@@ -477,8 +500,12 @@ def main():
         )
     else:
         model = AutoModelForCausalLM.from_config(config)
-        n_params = sum(dict((p.data_ptr(), p.numel()) for p in model.parameters()).values())
-        logger.info(f"Training new model from scratch - Total size={n_params/2**20:.2f}M params")
+        n_params = sum(
+            dict((p.data_ptr(), p.numel()) for p in model.parameters()).values()
+        )
+        logger.info(
+            f"Training new model from scratch - Total size={n_params/2**20:.2f}M params"
+        )
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.
@@ -495,7 +522,9 @@ def main():
     text_column_name = "text" if "text" in column_names else column_names[0]
 
     # since this will be pickled to avoid _LazyModule error in Hasher force logger loading before tokenize_function
-    tok_logger = transformers.utils.logging.get_logger("transformers.tokenization_utils_base")
+    tok_logger = transformers.utils.logging.get_logger(
+        "transformers.tokenization_utils_base"
+    )
 
     def tokenize_function(examples):
         with CaptureLogger(tok_logger) as cl:
@@ -509,13 +538,14 @@ def main():
         return output
 
     with training_args.main_process_first(desc="dataset map tokenization"):
+        # 只有主进程(Rank 0)会先执行此代码块, 其他进程阻塞等待
         tokenized_datasets = raw_datasets.map(
-            tokenize_function,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            remove_columns=column_names,
-            load_from_cache_file=not data_args.overwrite_cache,
-            desc="Running tokenizer on dataset",
+            tokenize_function,  # 应用在每个数据batch上的处理函数
+            batched=True,  # 按批处理
+            num_proc=data_args.preprocessing_num_workers,  # 并行进程数
+            remove_columns=column_names,  # 移除原始列
+            load_from_cache_file=not data_args.overwrite_cache,  # 是否从缓存加载
+            desc="Running tokenizer on dataset",  # 进度条描述
         )
 
     if data_args.block_size is None:
@@ -554,10 +584,6 @@ def main():
     # Note that with `batched=True`, this map processes 1,000 texts together, so group_texts throws away a remainder
     # for each of those groups of 1,000 texts. You can adjust that batch_size here but a higher value might be slower
     # to preprocess.
-    #
-    # To speed up this part, we use multiprocessing. See the documentation of the map method for more information:
-    # https://huggingface.co/docs/datasets/package_reference/main_classes.html#datasets.Dataset.map
-
     with training_args.main_process_first(desc="grouping texts together"):
         lm_datasets = tokenized_datasets.map(
             group_texts,
@@ -584,33 +610,36 @@ def main():
             eval_dataset = eval_dataset.select(range(max_eval_samples))
 
         def preprocess_logits_for_metrics(logits, labels):
-            if isinstance(logits, tuple):
+            """输入:模型原始输出logits和标签labels
+            输出:处理后的预测结果, 用于计算指标"""
+            if isinstance(logits, tuple):  # 处理多输出模型
                 # Depending on the model and config, logits may contain extra tensors,
                 # like past_key_values, but logits always come first
-                logits = logits[0]
-            return logits.argmax(dim=-1)
+                logits = logits[0]  # 提取预测logits(形状: [batch, seq_len, vocab_size])
+            return logits.argmax(dim=-1)  # 返回每个位置概率最大的token_id
 
         metric = evaluate.load("accuracy")
 
         def compute_metrics(eval_preds):
+            """计算评估指标"""
             preds, labels = eval_preds
             # preds have the same shape as the labels, after the argmax(-1) has been calculated
             # by preprocess_logits_for_metrics but we need to shift the labels
-            labels = labels[:, 1:].reshape(-1)
-            preds = preds[:, :-1].reshape(-1)
+            labels = labels[:, 1:].reshape(-1)  # 偏移处理
+            preds = preds[:, :-1].reshape(-1)  # 对齐标签
             return metric.compute(predictions=preds, references=labels)
 
     # Set Quantizer
-    if not quantizer_args.mode == 'base':
+    if not quantizer_args.mode == "base":
         set_quantizer(quantizer_args)
-        model = quantize_model(model) 
+        model = quantize_model(model)
         # model.to(device)
-        if not quantizer_args.disable_quant and quantizer_args.mode != 'source':
+        if not quantizer_args.disable_quant and quantizer_args.mode != "source":
             enable_quantization(model)
         else:
             disable_quantization(model)
         if quantizer_args.disable_input_quantization:
-            disable_input_quantization(model)      
+            disable_input_quantization(model)
 
     # Initialize our Trainer
     trainer = Trainer(
@@ -621,10 +650,10 @@ def main():
         tokenizer=tokenizer,
         # Data collator will default to DataCollatorWithPadding, so we change it.
         data_collator=default_data_collator,
-        compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics
-        if training_args.do_eval and not is_torch_tpu_available()
-        else None,
+        compute_metrics=(compute_metrics if training_args.do_eval else None),
+        preprocess_logits_for_metrics=(
+            preprocess_logits_for_metrics if training_args.do_eval else None
+        ),
     )
 
     # Training
@@ -640,7 +669,9 @@ def main():
         metrics = train_result.metrics
 
         max_train_samples = (
-            data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
+            data_args.max_train_samples
+            if data_args.max_train_samples is not None
+            else len(train_dataset)
         )
         metrics["train_samples"] = min(max_train_samples, len(train_dataset))
 
@@ -651,10 +682,14 @@ def main():
     # Evaluation
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
-
+        # 开始评估
         metrics = trainer.evaluate()
 
-        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
+        max_eval_samples = (
+            data_args.max_eval_samples
+            if data_args.max_eval_samples is not None
+            else len(eval_dataset)
+        )
         metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
         try:
             perplexity = math.exp(metrics["eval_loss"])
@@ -665,18 +700,25 @@ def main():
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
-    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "text-generation"}
+    kwargs = {
+        "finetuned_from": model_args.model_name_or_path,
+        "tasks": "text-generation",
+    }
     if data_args.dataset_name is not None:
         kwargs["dataset_tags"] = data_args.dataset_name
         if data_args.dataset_config_name is not None:
             kwargs["dataset_args"] = data_args.dataset_config_name
-            kwargs["dataset"] = f"{data_args.dataset_name} {data_args.dataset_config_name}"
+            kwargs["dataset"] = (
+                f"{data_args.dataset_name} {data_args.dataset_config_name}"
+            )
         else:
             kwargs["dataset"] = data_args.dataset_name
 
     if training_args.push_to_hub:
+        # 推送至Hugging Face Hub
         trainer.push_to_hub(**kwargs)
     else:
+        # 创建模型卡片, 用于记录
         trainer.create_model_card(**kwargs)
 
 
