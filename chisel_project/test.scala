@@ -1,3 +1,0 @@
-class Hello extends Module {
-
-}

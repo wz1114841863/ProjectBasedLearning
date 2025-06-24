@@ -1,7 +1,11 @@
 # 虚拟环境
 .venv/
+.bsp/
+.scala-build/
+.vscode/
+.metals/
+
 LLM/Models/
 
 # 临时文件夹
 tmp/
-
