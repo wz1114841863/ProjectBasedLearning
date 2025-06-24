@@ -9,3 +9,6 @@ LLM/Models/
 
 # 临时文件夹
 tmp/
+*.pyc
+__pycache__/
+build/
