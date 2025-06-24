@@ -1,0 +1,7 @@
+# 文件夹
+.vscode/
+awq_cache/
+awq.egg-info/
+quant_cache/
+facebook/*
+datasets/
