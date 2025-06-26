@@ -1,8 +1,7 @@
 package tutorial
 
 import chisel3._
-import _root_.circt.stage.ChiselStage  // root用于避免引用冲突
-
+import _root_.circt.stage.ChiselStage // root用于避免引用冲突
 
 class Passthrough extends Module {
     val io = IO(new Bundle {
@@ -22,10 +21,12 @@ class PassthoughGenerator(width: Int) extends Module {
 
 object Main extends App {
     println(getVerilogString(new Passthrough))
-    println(ChiselStage.emitSystemVerilog(
-      gen = new Passthrough,
-      firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
-    ))
+    println(
+      ChiselStage.emitSystemVerilog(
+        gen = new Passthrough,
+        firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
+      )
+    )
     println(getVerilogString(new PassthoughGenerator(8)))
     println(getVerilogString(new PassthoughGenerator(16)))
 }
