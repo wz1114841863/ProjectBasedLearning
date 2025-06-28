@@ -22,8 +22,19 @@ class MyManyDynamicElementVecFir(length: Int) extends Module {
         val out = Output(UInt(8.W))
         val consts = Input(Vec(length, UInt(8.W)))
     })
+    // 将输入信号和常数系数连接到延迟线
     val taps = Seq(io.in) ++ Seq.fill(io.consts.length - 1)(RegInit(0.U(8.W)))
-    // TODO:
+    // 使用 zip 和 tail 方法来连接延迟线
+    taps.zip(taps.tail).foreach { case (a, b) =>
+        when(io.valid) {
+            b := a
+        }
+    }
+    // 计算输出信号
+    io.out := taps
+        .zip(io.consts)
+        .map { case (tap, const) => tap * const }
+        .reduce(_ + _)
 }
 
 object Main8 extends App {
