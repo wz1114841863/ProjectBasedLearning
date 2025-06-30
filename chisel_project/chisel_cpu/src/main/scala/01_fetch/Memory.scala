@@ -38,13 +38,9 @@ class Memory extends Module {
     initData.zipWithIndex.foreach { case (data, addr) =>
         mem(addr.U) := data
     }
-    // 加载存储器数据
+
+    // 加载存储器数据, 存在问题, 无法加载
     // loadMemoryFromFile(mem, "src/hex/fetch.hex.txt")
-    // 打印前n个字节
-    // for (i <- 0 until 12) {
-    //     printf(p"mem[$i] = ${mem(i.U)}\n")
-    // }
-    // printf("Finish load hex")
 
     // 连接4个地址存储的8bit数据, 形成32位数据
     io.imem.inst := Cat(
