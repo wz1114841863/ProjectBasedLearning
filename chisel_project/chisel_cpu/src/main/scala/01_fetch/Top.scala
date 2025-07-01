@@ -14,5 +14,12 @@ class Top extends Module {
 
     // 使用<>批量连接端口
     core.io.imem <> memory.io.imem
+    core.io.dmem <> memory.io.dmem
+
     io.exit := core.io.exit
+}
+
+object MainTop extends App {
+    // 生成Verilog代码
+    println(getVerilogString(new Top))
 }
