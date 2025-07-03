@@ -72,7 +72,7 @@ class Core extends Module {
     io.exit := exitReg
 }
 
-object MainCore extends App {
-    // 生成Verilog代码
-    println(getVerilogString(new Core))
-}
+// object MainCore extends App {
+//     // 生成Verilog代码
+//     println(getVerilogString(new Core))
+// }

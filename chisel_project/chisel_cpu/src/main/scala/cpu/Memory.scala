@@ -39,7 +39,14 @@ class Memory extends Module {
     // loadMemoryFromFile(mem, "src/hex/fetch.hex.txt")
     // 写入 mem
     // 将 hex 文件内容转换为 Chisel 可识别的 Seq[UInt]
-    val hexLines = Source.fromFile("src/hex/fetch.hex").getLines().toSeq
+    // 在测试或模块代码中
+    // val projectRoot = sys.props.getOrElse(
+    //   "chisel.project.root",
+    //   sys.env.getOrElse("PWD", ".")
+    // )
+    // val hexFilePath = s"$projectRoot/src/hex/fetch.hex"
+    val hexFilePath = s"src/hex/fetch.hex"
+    val hexLines = Source.fromFile(hexFilePath).getLines().toSeq
     val initData = hexLines.map { line =>
         val trimmedLine = line.trim
         require(trimmedLine.nonEmpty, s"Empty line in hex file!")
@@ -67,7 +74,7 @@ class Memory extends Module {
     )
 }
 
-object MainMemory extends App {
-    // 生成Verilog代码
-    println(getVerilogString(new Memory))
-}
+// object MainMemory extends App {
+//     // 生成Verilog代码
+//     println(getVerilogString(new Memory))
+// }
