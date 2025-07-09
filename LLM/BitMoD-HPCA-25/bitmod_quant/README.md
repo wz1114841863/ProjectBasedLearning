@@ -70,3 +70,5 @@ python llm_eval_wikitext.py \
     --wq_bits "6" \
     --wq_datatype "int6" \
     --wq_groupsize "128"
+
+python llm_eval_wikitext.py --model "facebook/opt-125m" --wq_bits 8 --wq_datatype "int8_asym" --wq_groupsize 128

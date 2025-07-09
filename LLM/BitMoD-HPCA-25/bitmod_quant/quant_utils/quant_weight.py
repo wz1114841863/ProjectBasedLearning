@@ -166,14 +166,16 @@ def quant_mx(w_fp16, wq_bits: int = 4, datatype: str = "", group_size: int = 32)
         (allow_value[i] + allow_value[i + 1]) / 2 for i in range(len(allow_value) - 1)
     ]
     K, C = w_fp16.size()  # output channel, input channel
-    NUM_GROUP = C // group_size
+    NUM_GROUP = C // group_size  # group_size is fixed to 32
     w_fp16_new = (
         w_fp16.unsqueeze(-1).reshape(K, NUM_GROUP, group_size).to(torch.float32)
     )
 
-    shared_exp, _ = torch.max(w_fp16_new.abs(), dim=-1, keepdim=True)
+    shared_exp, _ = torch.max(
+        w_fp16_new.abs(), dim=-1, keepdim=True
+    )  # shape: [K, NUM_GROUP, 1]
     shared_exp = torch.floor(torch.log2(shared_exp))
-    w_fp16_new = w_fp16_new / (2**shared_exp)
+    w_fp16_new = w_fp16_new / (2**shared_exp)  # 动态指数缩放
     qmax = max([abs(x) for x in allow_value])
     scale = 1 / (qmax / 2)
     x = w_fp16_new / scale
@@ -216,7 +218,7 @@ def quant_datatype(
     allow_value = DATATYPE_MAPPING[datatype]
     mid_value = [
         (allow_value[i] + allow_value[i + 1]) / 2 for i in range(len(allow_value) - 1)
-    ]
+    ]  # 计算相邻两个允许值的中点, 作为量化区间的分界点
 
     if (group_size is None) or (group_size <= 0):
         w_fp16_new = w_fp16.to(torch.float16)
@@ -227,15 +229,20 @@ def quant_datatype(
             w_fp16.unsqueeze(-1).reshape(K, NUM_GROUP, group_size).to(torch.float16)
         )
 
-    rmax = torch.amax(w_fp16_new.abs(), dim=-1, keepdim=True)
+    rmax = torch.amax(
+        w_fp16_new.abs(), dim=-1, keepdim=True
+    )  # shape: [K, NUM_GROUP, 1]
     qmax = max([abs(x) for x in allow_value])
     scale_fp = rmax / qmax
     scale_fp = scale_fp.clamp(min=1e-5, max=1e4)
     x = w_fp16_new / scale_fp
 
     q_tensor = torch.zeros_like(x)
+    # 将缩放后的数据 x 映射到最近的 allow_value
     for i in range(len(allow_value)):
         data = allow_value[i]
+        # torch.where(condition, value, 0):
+        #   对满足 condition 的位置填充 value,其余位置填 0
         if i == 0:
             q_tensor += torch.where(x <= mid_value[i], data, 0)
         elif i == len(allow_value) - 1:
@@ -260,6 +267,10 @@ def search_datatype(
     datatype: str = "mixed_bitmod",
     group_size: Optional[int] = None,
 ):
+    """
+    函数对每个权重分组独立选择最优的量化类型,而不是对整个层使用单一量化类型.
+    """
+    # 确定候选量化类型列表, 进行混合类型量化
     if wq_bits == 3:
         if datatype == "mixed_bitmod":
             datatype_list = ["fp3_er_pos", "fp3_er_neg", "fp3_ea_pos", "fp3_ea_neg"]
@@ -291,12 +302,14 @@ def search_datatype(
     q_tensor = torch.zeros_like(w_fp16)
 
     error = torch.full([K, NUM_GROUP], 1e3, dtype=w_fp16.dtype, device=w_fp16.device)
+    # 对比量化误差, 更新所采用的量化类型
     for datatype in datatype_list:
         w_fp16_tmp = quant_datatype(
             w_fp16, wq_bits=wq_bits, datatype=datatype, group_size=None
         )
-        quant_error = (w_fp16_tmp - w_fp16).pow(2).mean(-1)
-        update_mask = torch.lt(quant_error, error)
+        # 计算量化误差(MSE)
+        quant_error = (w_fp16_tmp - w_fp16).pow(2).mean(-1)  # shape: [K, NUM_GROUP]
+        update_mask = torch.lt(quant_error, error)  # 找到量化误差小于当前最小误差的位置. shape: [K, NUM_GROUP]
         error[update_mask] = quant_error[update_mask]
         q_tensor[update_mask] = w_fp16_tmp[update_mask]
 
@@ -365,7 +378,7 @@ def quant_model(
                     datatype=wq_datatype,
                     group_size=wq_groupsize,
                 )
-    elif "fp" in wq_datatype:
+    elif "fp" in wq_datatype or "fl" in wq_datatype:
         print(
             f"Applying floating-point datatype quantization with bits: {wq_bits}, group size: {wq_groupsize}"
         )
