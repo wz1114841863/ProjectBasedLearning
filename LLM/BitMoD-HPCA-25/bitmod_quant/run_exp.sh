@@ -4,8 +4,8 @@
 declare -a model_list=(
     # "facebook/opt-125m"
     "facebook/opt-350m"
-    "facebook/opt-1.3b"
-    "facebook/opt-2.7b"
+    # "facebook/opt-1.3b"
+    # "facebook/opt-2.7b"
     # "microsoft/phi-2"
     # "01-ai/Yi-6B"
     # "meta-llama/Llama-2-7b-hf"
