@@ -1,7 +1,0 @@
-__pycache__/
-results_quant/
-
-AWQ-BitMoD/
-OmniQuant-BitMoD/
-SmoothQuant-BitMoD/
-bitmod_sim/

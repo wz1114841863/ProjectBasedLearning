@@ -1,6 +1,0 @@
-accelerate
-transformers
-evaluate
-datasets
-scikit-learn
-scipy
